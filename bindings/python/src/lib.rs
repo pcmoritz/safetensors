@@ -2746,10 +2746,15 @@ fn numpy_mmap_view<'py>(
     offset: usize,
 ) -> PyResult<PyBound<'py, PyAny>> {
     let numpy = get_module(py, &NUMPY_MODULE)?;
-    let dtype = get_pydtype(numpy, info.dtype, true)?;
+    // The file is little-endian: an explicitly little-endian dtype keeps this a
+    // view on big-endian hosts too, where numpy swaps bytes on access.
+    let dtype = numpy
+        .getattr(intern!(py, "dtype"))?
+        .call1((get_pydtype(numpy, info.dtype, true)?,))?
+        .call_method1(intern!(py, "newbyteorder"), ("<",))?;
     let start = (info.data_offsets.0 + offset) as isize;
     let stop = (info.data_offsets.1 + offset) as isize;
-    let mut array = np_mmap
+    np_mmap
         .bind(py)
         .get_item(PySlice::new(py, start, stop, 1))?
         // Drop the `numpy.memmap` subclass, a plain `ndarray` is expected.
@@ -2757,15 +2762,8 @@ fn numpy_mmap_view<'py>(
             intern!(py, "view"),
             (numpy.getattr(intern!(py, "ndarray"))?,),
         )?
-        .call_method1(intern!(py, "view"), (dtype,))?;
-    let byteorder: String = PyModule::import(py, intern!(py, "sys"))?
-        .getattr(intern!(py, "byteorder"))?
-        .extract()?;
-    if byteorder == "big" {
-        // The file is little-endian, a copy is unavoidable.
-        array = array.call_method1(intern!(py, "byteswap"), (false,))?;
-    }
-    array.call_method1(intern!(py, "reshape"), (info.shape.clone(),))
+        .call_method1(intern!(py, "view"), (dtype,))?
+        .call_method1(intern!(py, "reshape"), (info.shape.clone(),))
 }
 
 fn create_tensor<'a>(
