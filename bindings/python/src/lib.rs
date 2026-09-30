@@ -603,8 +603,8 @@ enum Storage {
     // Paddle can handle the whole lifecycle.
     // https://www.paddlepaddle.org.cn/documentation/docs/en/develop/api/paddle/MmapStorage_en.html
     Paddle(OnceLock<Py<PyAny>>),
-    /// Numpy mmap for `zero_copy=True`: a copy-on-write `numpy.memmap` of the
-    /// whole file. Tensors are views into it, which keep it alive.
+    /// Numpy mmap: a copy-on-write `numpy.memmap` of the whole file.
+    /// Tensors are views into it, which keep it alive.
     Numpy(Py<PyAny>),
     /// Holds an open file handle and
     /// serves each tensor via `pread(2)` into a fresh per-tensor host
@@ -768,13 +768,7 @@ impl Open {
         framework: Framework,
         device: Option<Device>,
         backend: Backend,
-        zero_copy: bool,
     ) -> PyResult<Self> {
-        if zero_copy && (framework != Framework::Numpy || backend != Backend::Mmap) {
-            return Err(SafetensorError::new_err(format!(
-                "zero_copy=True requires framework=\"numpy\" and backend=\"mmap\", got framework={framework} and backend={backend}"
-            )));
-        }
         let file = File::open(&filename).map_err(|_| {
             PyFileNotFoundError::new_err(format!(
                 "No such file or directory: {}",
@@ -920,7 +914,7 @@ impl Open {
                     Ok(Storage::Mmap(buffer))
                 }
             })?,
-            Framework::Numpy if zero_copy => Python::attach(|py| -> PyResult<Storage> {
+            Framework::Numpy => Python::attach(|py| -> PyResult<Storage> {
                 // numpy.memmap(filename, dtype=numpy.uint8, mode="c"): copy-on-write
                 // like torch's `from_file(shared=False)`, so arrays are writable
                 // but writes never reach the file. `buffer` is dropped.
@@ -1736,12 +1730,10 @@ impl TensorStream {
 ///         shared `MTLBuffer`s (1x model memory, no page-cache duplication) and
 ///         loads a full model several times faster than `"mmap"`.
 ///
-///     zero_copy (`bool`, *keyword-only*, defaults to `False`):
-///         Only for `framework="numpy"` with the `"mmap"` backend. Returns
-///         numpy views into a copy-on-write memory map of the file instead of
-///         copies, for `get_tensor` and `get_slice(...)[...]` alike, like the
-///         `pt` framework does. Writes to them never reach the file, but are
-///         seen by other arrays from the same handle.
+///         With `framework="numpy"` and `"mmap"`, tensors are numpy views into
+///         a copy-on-write memory map of the file, like `framework="pt"`:
+///         writes to them never reach the file, but are seen by other arrays
+///         from the same handle.
 #[pyclass]
 #[allow(non_camel_case_types)]
 struct safe_open {
@@ -1761,15 +1753,14 @@ impl safe_open {
 #[pymethods]
 impl safe_open {
     #[new]
-    #[pyo3(signature = (filename, framework, device=Some(Device::Cpu), *, backend=Backend::Mmap, zero_copy=false))]
+    #[pyo3(signature = (filename, framework, device=Some(Device::Cpu), *, backend=Backend::Mmap))]
     fn new(
         filename: PathBuf,
         framework: Framework,
         device: Option<Device>,
         backend: Backend,
-        zero_copy: bool,
     ) -> PyResult<Self> {
-        let inner = Some(Open::new(filename, framework, device, backend, zero_copy)?);
+        let inner = Some(Open::new(filename, framework, device, backend)?);
         Ok(Self { inner })
     }
 
@@ -2978,13 +2969,12 @@ impl _safe_open_handle {
 #[pymethods]
 impl _safe_open_handle {
     #[new]
-    #[pyo3(signature = (f, framework, device=Some(Device::Cpu), *, backend=Backend::Mmap, zero_copy=false))]
+    #[pyo3(signature = (f, framework, device=Some(Device::Cpu), *, backend=Backend::Mmap))]
     fn new(
         f: Py<PyAny>,
         framework: Framework,
         device: Option<Device>,
         backend: Backend,
-        zero_copy: bool,
     ) -> PyResult<Self> {
         let filename = Python::attach(|py| -> PyResult<PathBuf> {
             let _ = f.getattr(py, "fileno")?;
@@ -2992,7 +2982,7 @@ impl _safe_open_handle {
             let filename: PathBuf = filename.extract(py)?;
             Ok(filename)
         })?;
-        let inner = Some(Open::new(filename, framework, device, backend, zero_copy)?);
+        let inner = Some(Open::new(filename, framework, device, backend)?);
         Ok(Self { inner })
     }
 
