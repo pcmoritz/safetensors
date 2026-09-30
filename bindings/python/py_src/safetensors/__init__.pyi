@@ -232,12 +232,10 @@ class safe_open:
             shared `MTLBuffer` (1x model memory, no page-cache duplication) and
             loads a full model several times faster than `"mmap"`.
 
-        zero_copy (`bool`, *keyword-only*, defaults to `False`):
-            Only for `framework="numpy"` with the `"mmap"` backend. Returns
-            numpy views into a copy-on-write memory map of the file instead of
-            copies, for `get_tensor` and `get_slice(...)[...]` alike, like the
-            `pt` framework does. Writes to them never reach the file, but are
-            seen by other arrays from the same handle.
+            With `framework="numpy"` and `"mmap"`, tensors are numpy views into
+            a copy-on-write memory map of the file, like `framework="pt"`:
+            writes to them never reach the file, but are seen by other arrays
+            from the same handle.
     """
     def __init__(
         self,
@@ -246,7 +244,6 @@ class safe_open:
         device=...,
         *,
         backend: str = "mmap",
-        zero_copy: bool = False,
     ):
         pass
 

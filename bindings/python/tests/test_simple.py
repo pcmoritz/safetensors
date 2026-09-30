@@ -320,16 +320,16 @@ class ReadmeTestCase(unittest.TestCase):
         save_file(tensors, filename)
 
         # Now loading
-        for zero_copy in [False, True]:
-            with self.subTest(zero_copy=zero_copy):
-                self._check_numpy_slice(filename, A, zero_copy)
+        for backend in ["mmap", "pread"]:
+            with self.subTest(backend=backend):
+                self._check_numpy_slice(filename, A, backend)
 
     def test_numpy_zero_copy(self):
         A = np.random.rand(10, 5)
         filename = f"./zero_copy_{threading.get_ident()}.safetensors"
         save_file({"a": A}, filename)
 
-        with safe_open(filename, framework="np", zero_copy=True) as f:
+        with safe_open(filename, framework="np") as f:
             tensor = f.get_tensor("a")
             part = f.get_slice("a")[2:, 1]
         # Views into the file that outlive the handle.
@@ -343,13 +343,8 @@ class ReadmeTestCase(unittest.TestCase):
         self.assertEqual(part[1], -1.0)
         self.assertTrue(np.array_equal(load_file(filename)["a"], A))
 
-        with self.assertRaises(SafetensorError):
-            safe_open(filename, framework="pt", zero_copy=True)
-
-    def _check_numpy_slice(self, filename, A, zero_copy):
-        with safe_open(
-            filename, framework="np", device="cpu", zero_copy=zero_copy
-        ) as f:
+    def _check_numpy_slice(self, filename, A, backend):
+        with safe_open(filename, framework="np", device="cpu", backend=backend) as f:
             slice_ = f.get_slice("a")
             tensor = slice_[:]
             self.assertEqual(list(tensor.shape), [10, 5])
