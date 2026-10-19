@@ -2728,8 +2728,8 @@ impl<'py> PinnedCpuDest<'py> {
     }
 }
 
-/// `np_mmap[start:stop].view(dtype).reshape(shape)`: a numpy view of one
-/// tensor, keeping the memory map alive through its `base`.
+/// `numpy.ndarray(shape, dtype, buffer=np_mmap, offset=...)`: a numpy view of
+/// one tensor, keeping the memory map alive through its `base`.
 fn numpy_mmap_view<'py>(
     py: Python<'py>,
     np_mmap: &Py<PyAny>,
@@ -2743,18 +2743,10 @@ fn numpy_mmap_view<'py>(
         .getattr(intern!(py, "dtype"))?
         .call1((get_pydtype(numpy, info.dtype, true)?,))?
         .call_method1(intern!(py, "newbyteorder"), ("<",))?;
-    let start = (info.data_offsets.0 + offset) as isize;
-    let stop = (info.data_offsets.1 + offset) as isize;
-    np_mmap
-        .bind(py)
-        .get_item(PySlice::new(py, start, stop, 1))?
-        // Drop the `numpy.memmap` subclass, a plain `ndarray` is expected.
-        .call_method1(
-            intern!(py, "view"),
-            (numpy.getattr(intern!(py, "ndarray"))?,),
-        )?
-        .call_method1(intern!(py, "view"), (dtype,))?
-        .call_method1(intern!(py, "reshape"), (info.shape.clone(),))
+    let start = info.data_offsets.0 + offset;
+    numpy
+        .getattr(intern!(py, "ndarray"))?
+        .call1((info.shape.clone(), dtype, np_mmap, start))
 }
 
 fn create_tensor<'a>(
