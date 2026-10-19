@@ -327,6 +327,30 @@ fn narrow_bounds(left: &Bound<usize>, right: &Bound<usize>, dim: usize) -> (usiz
     (start, stop)
 }
 
+/// The `(start, stop, step)` element range of `slice` in dimension `i` of size
+/// `dim`, or the error if it is out of bounds.
+fn slice_range(
+    i: usize,
+    slice: &TensorIndexer,
+    dim: usize,
+) -> Result<(usize, usize, usize), InvalidSlice> {
+    let (start, stop, step) = match slice {
+        TensorIndexer::Select(s) => (*s, *s + 1, 1),
+        TensorIndexer::Narrow(left, right, step) => {
+            let (start, stop) = narrow_bounds(left, right, dim);
+            (start, stop, step.get())
+        }
+    };
+    if start >= dim || stop > dim {
+        return Err(InvalidSlice::SliceOutOfRange {
+            dim_index: i,
+            asked: if start >= dim { start } else { stop - 1 },
+            dim_size: dim,
+        });
+    }
+    Ok((start, stop, step))
+}
+
 /// Return the error [`slice_byte_ranges`] would, without computing its byte
 /// ranges unless `dtype` is smaller than a byte (and a slice can misalign).
 pub fn validate_slice(
@@ -342,17 +366,7 @@ pub fn validate_slice(
     }
     // Innermost dimension first, as `slice_byte_ranges` checks them.
     for (i, (slice, &dim)) in slices.iter().zip(shape).enumerate().rev() {
-        let (start, stop) = match slice {
-            TensorIndexer::Select(s) => (*s, *s + 1),
-            TensorIndexer::Narrow(left, right, _) => narrow_bounds(left, right, dim),
-        };
-        if start >= dim || stop > dim {
-            return Err(InvalidSlice::SliceOutOfRange {
-                dim_index: i,
-                asked: if start >= dim { start } else { stop - 1 },
-                dim_size: dim,
-            });
-        }
+        slice_range(i, slice, dim)?;
     }
     Ok(())
 }
@@ -384,25 +398,7 @@ pub fn slice_byte_ranges(
             newshape.push(dim);
         } else {
             let slice = &slices[i];
-            let (start, stop, step) = match slice {
-                TensorIndexer::Select(s) => (*s, *s + 1, 1),
-                TensorIndexer::Narrow(left, right, step) => {
-                    let (start, stop) = narrow_bounds(left, right, dim);
-                    (start, stop, step.get())
-                }
-            };
-            if start >= dim || stop > dim {
-                let asked = if start >= dim {
-                    start
-                } else {
-                    stop.saturating_sub(1)
-                };
-                return Err(InvalidSlice::SliceOutOfRange {
-                    dim_index: i,
-                    asked,
-                    dim_size: dim,
-                });
-            }
+            let (start, stop, step) = slice_range(i, slice, dim)?;
             if !matches!(slice, TensorIndexer::Select(_)) {
                 newshape.push((stop - start).div_ceil(step));
             }
