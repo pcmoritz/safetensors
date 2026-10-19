@@ -2152,7 +2152,7 @@ impl PySafeSlice {
             Storage::Numpy(np_mmap) => {
                 // Validate like the copying path, so errors are the same.
                 let indexers = parse_indexers(slices, &self.info.shape)?;
-                safetensors::slice::slice_byte_ranges(self.info.dtype, &self.info.shape, &indexers)
+                safetensors::slice::validate_slice(self.info.dtype, &self.info.shape, &indexers)
                     .map_err(|e| {
                         SafetensorError::new_err(format!(
                             "Error during slicing {} with shape {:?}: {e}",

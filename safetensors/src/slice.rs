@@ -327,6 +327,36 @@ fn narrow_bounds(left: &Bound<usize>, right: &Bound<usize>, dim: usize) -> (usiz
     (start, stop)
 }
 
+/// Return the error [`slice_byte_ranges`] would, without computing its byte
+/// ranges unless `dtype` is smaller than a byte (and a slice can misalign).
+pub fn validate_slice(
+    dtype: Dtype,
+    shape: &[usize],
+    slices: &[TensorIndexer],
+) -> Result<(), InvalidSlice> {
+    if dtype.bitsize() % 8 != 0 {
+        return slice_byte_ranges(dtype, shape, slices).map(|_| ());
+    }
+    if slices.len() > shape.len() {
+        return Err(InvalidSlice::TooManySlices);
+    }
+    // Innermost dimension first, as `slice_byte_ranges` checks them.
+    for (i, (slice, &dim)) in slices.iter().zip(shape).enumerate().rev() {
+        let (start, stop) = match slice {
+            TensorIndexer::Select(s) => (*s, *s + 1),
+            TensorIndexer::Narrow(left, right, _) => narrow_bounds(left, right, dim),
+        };
+        if start >= dim || stop > dim {
+            return Err(InvalidSlice::SliceOutOfRange {
+                dim_index: i,
+                asked: if start >= dim { start } else { stop - 1 },
+                dim_size: dim,
+            });
+        }
+    }
+    Ok(())
+}
+
 /// Compute the byte ranges and post-slice shape for a slicing operation
 /// without requiring the underlying data buffer.
 ///
